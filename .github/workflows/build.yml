@@ -30,7 +30,7 @@ jobs:
       - run: flutter pub get
 
       # Build de l'APK
-      - run: flutter build apk --release
+      - run: flutter build apk --release --verbose
 
       # Téléchargement de l'APK généré
       - uses: actions/upload-artifact@v4
