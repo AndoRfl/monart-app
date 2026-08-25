@@ -11,28 +11,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Setup Java JDK (nécessaire pour la compilation Android)
+      # Configuration du JDK Java 17 pour Gradle / Android
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # Setup Flutter SDK
+      # Configuration du SDK Flutter
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # Génération du projet Android si manquant
+      # Génération de la structure native Android
       - run: flutter create --platforms=android . --org com.monart.app
 
-      # Installation des dépendances
+      # Installation du package http et des dépendances
       - run: flutter pub add http
       - run: flutter pub get
 
-      # Build de l'APK
-      - run: flutter build apk --release --verbose
+      # Compilation de l'APK Release
+      - run: flutter build apk --release
 
-      # Téléchargement de l'APK généré
+      # Mettre le fichier APK à disposition en téléchargement
       - uses: actions/upload-artifact@v4
         with:
           name: app-release
