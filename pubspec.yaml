@@ -1,4 +1,4 @@
-name: Build Android APK
+name: monart_app
 
 on:
   push:
