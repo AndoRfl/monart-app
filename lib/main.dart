@@ -35,7 +35,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   // IP TAILSCALE DE VOTRE SERVEUR DEBIAN
-  final String serverIp = "100.x.y.z"; 
+  final String serverIp = "100.92.205.85"; 
   final int serverPort = 8888; // Port de l'API FastAPI Monart
 
   bool isLoading = true;
