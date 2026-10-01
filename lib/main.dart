@@ -35,7 +35,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   // IP TAILSCALE DE LA VM DEBIAN
-  final String serverIp = "100.92.205.85"; 
+  final String serverIp = "100.92.205.85";
   final int serverPort = 8888;
 
   bool isLoading = true;
@@ -60,47 +60,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> fetchAllData() async {
-    await fetchMetrics();
-    await fetchDnsSummary();
-  }
+    final urlMetrics = Uri.parse('http://$serverIp:$serverPort/metrics');
+    final urlDns = Uri.parse('http://$serverIp:$serverPort/dns/summary');
 
-  Future<void> fetchMetrics() async {
-    final url = Uri.parse('http://$serverIp:$serverPort/metrics');
+    bool tempConnected = false;
+
+    // 1. Interrogation des métriques système
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          metrics = data;
-          isConnected = true;
-          isLoading = false;
-        });
-      } else {
-        setState(() {
-          isConnected = false;
-          isLoading = false;
-        });
+      final resMetrics = await http.get(urlMetrics).timeout(const Duration(seconds: 4));
+      if (resMetrics.statusCode == 200) {
+        metrics = json.decode(resMetrics.body);
+        tempConnected = true;
       }
-    } catch (e) {
+    } catch (_) {}
+
+    // 2. Interrogation du résumé DNS Pi-hole
+    try {
+      final resDns = await http.get(urlDns).timeout(const Duration(seconds: 4));
+      if (resDns.statusCode == 200) {
+        dnsSummary = json.decode(resDns.body);
+        tempConnected = true;
+      }
+    } catch (_) {}
+
+    if (mounted) {
       setState(() {
-        isConnected = false;
+        isConnected = tempConnected;
         isLoading = false;
       });
-    }
-  }
-
-  Future<void> fetchDnsSummary() async {
-    final url = Uri.parse('http://$serverIp:$serverPort/dns/summary');
-    try {
-      final response = await http.get(url).timeout(const Duration(seconds: 5));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        setState(() {
-          dnsSummary = data;
-        });
-      }
-    } catch (e) {
-      // Tolérance d'erreur DNS
     }
   }
 
