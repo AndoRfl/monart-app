@@ -34,21 +34,23 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // ADRESSE IP DU SERVEUR DEBIAN
-  final String serverIp = "192.168.56.10";
-  
+  // IP TAILSCALE DE VOTRE SERVEUR DEBIAN
+  final String serverIp = "100.x.y.z"; 
+  final int serverPort = 8888; // Port de l'API FastAPI Monart
+
   bool isLoading = true;
   bool isConnected = false;
   Map<String, dynamic> metrics = {};
+  Map<String, dynamic> dnsSummary = {};
   Timer? _timer;
 
   @override
   void initState() {
     super.initState();
-    fetchMetrics();
+    fetchAllData();
     // Rafraîchissement automatique toutes les 5 secondes
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
-      fetchMetrics();
+      fetchAllData();
     });
   }
 
@@ -58,8 +60,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.dispose();
   }
 
+  Future<void> fetchAllData() async {
+    await Future.wait([
+      fetchMetrics(),
+      fetchDnsSummary(),
+    ]);
+  }
+
   Future<void> fetchMetrics() async {
-    final url = Uri.parse('http://$serverIp:8000/api/metrics');
+    final url = Uri.parse('http://$serverIp:$serverPort/metrics');
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 4));
       if (response.statusCode == 200) {
@@ -82,8 +91,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> fetchDnsSummary() async {
+    final url = Uri.parse('http://$serverIp:$serverPort/dns/summary');
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 4));
+      if (response.statusCode == 200) {
+        setState(() {
+          dnsSummary = json.decode(response.body);
+        });
+      }
+    } catch (e) {
+      // Tolérance si Pi-hole temporairement indisponible
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final totalQueries = dnsSummary['queries']?['total'] ?? 0;
+    final blockedQueries = dnsSummary['queries']?['blocked'] ?? 0;
+    final blockedDomains = dnsSummary['gravity']?['domains_being_blocked'] ?? 0;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Supervision MonArt'),
@@ -93,7 +120,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: () {
               setState(() => isLoading = true);
-              fetchMetrics();
+              fetchAllData();
             },
           )
         ],
@@ -107,6 +134,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 children: [
                   _buildStatusCard(),
                   const SizedBox(height: 20),
+                  
+                  const Text(
+                    "Statistiques DNS (Pi-hole v6)",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 10),
+                  _buildMetricTile(
+                    title: "Requêtes Totales",
+                    value: "$totalQueries",
+                    icon: Icons.dns,
+                    color: Colors.cyan,
+                  ),
+                  _buildMetricTile(
+                    title: "Requêtes Bloquées",
+                    value: "$blockedQueries",
+                    icon: Icons.block,
+                    color: Colors.redAccent,
+                  ),
+                  _buildMetricTile(
+                    title: "Domaines en Liste Noire",
+                    value: "$blockedDomains",
+                    icon: Icons.security,
+                    color: Colors.teal,
+                  ),
+
+                  const SizedBox(height: 20),
+                  
                   const Text(
                     "Métriques Système",
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -130,16 +184,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     icon: Icons.disc_full,
                     color: Colors.purple,
                   ),
+                  
                   const SizedBox(height: 20),
+                  
                   const Text(
                     "Services Réseau",
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 10),
-                  _buildServiceTile("PostgreSQL", metrics['services']?['postgresql']),
-                  _buildServiceTile("Tomcat 10", metrics['services']?['tomcat']),
-                  _buildServiceTile("Caddy Server", metrics['services']?['caddy']),
-                  _buildServiceTile("OpenVPN", metrics['services']?['openvpn']),
+                  _buildServiceTile("BIND9 DNS", metrics['services']?['bind9'] ?? true),
+                  _buildServiceTile("Pi-hole FTL", metrics['services']?['pihole-FTL'] ?? true),
+                  _buildServiceTile("FastAPI Backend", isConnected),
                 ],
               ),
             ),
@@ -164,11 +219,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isConnected ? "Serveur En Ligne" : "Serveur Inaccessible",
+                  isConnected ? "Serveur En Ligne (Tailscale)" : "Serveur Inaccessible",
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  "IP: $serverIp",
+                  "IP: $serverIp:$serverPort",
                   style: const TextStyle(color: Colors.grey),
                 ),
               ],
