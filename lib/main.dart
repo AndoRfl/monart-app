@@ -34,9 +34,9 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  // IP TAILSCALE DE VOTRE SERVEUR DEBIAN
+  // IP TAILSCALE DE LA VM DEBIAN
   final String serverIp = "100.92.205.85"; 
-  final int serverPort = 8888; // Port de l'API FastAPI Monart
+  final int serverPort = 8888;
 
   bool isLoading = true;
   bool isConnected = false;
@@ -48,7 +48,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     fetchAllData();
-    // Rafraîchissement automatique toutes les 5 secondes
     _timer = Timer.periodic(const Duration(seconds: 5), (timer) {
       fetchAllData();
     });
@@ -61,19 +60,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> fetchAllData() async {
-    await Future.wait([
-      fetchMetrics(),
-      fetchDnsSummary(),
-    ]);
+    await fetchMetrics();
+    await fetchDnsSummary();
   }
 
   Future<void> fetchMetrics() async {
     final url = Uri.parse('http://$serverIp:$serverPort/metrics');
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 4));
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
+        final data = json.decode(response.body);
         setState(() {
-          metrics = json.decode(response.body);
+          metrics = data;
           isConnected = true;
           isLoading = false;
         });
@@ -94,14 +92,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Future<void> fetchDnsSummary() async {
     final url = Uri.parse('http://$serverIp:$serverPort/dns/summary');
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 4));
+      final response = await http.get(url).timeout(const Duration(seconds: 5));
       if (response.statusCode == 200) {
+        final data = json.decode(response.body);
         setState(() {
-          dnsSummary = json.decode(response.body);
+          dnsSummary = data;
         });
       }
     } catch (e) {
-      // Tolérance si Pi-hole temporairement indisponible
+      // Tolérance d'erreur DNS
     }
   }
 
@@ -215,18 +214,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
               size: 36,
             ),
             const SizedBox(width: 16),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isConnected ? "Serveur En Ligne (Tailscale)" : "Serveur Inaccessible",
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                Text(
-                  "IP: $serverIp:$serverPort",
-                  style: const TextStyle(color: Colors.grey),
-                ),
-              ],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isConnected ? "Serveur En Ligne (Tailscale)" : "Serveur Inaccessible",
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    "IP: $serverIp:$serverPort",
+                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
