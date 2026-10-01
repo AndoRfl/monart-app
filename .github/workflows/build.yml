@@ -11,32 +11,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Configuration du JDK Java 17
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # Configuration du SDK Flutter
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # Génération du projet Android natif
+      # Génération de la plateforme Android
       - run: flutter create --platforms=android . --org com.monart.app
 
-      # Ingestion de la permission Cleartext (HTTP) dans le Manifest Android
-      - name: Autoriser les flux HTTP locaux
+      # Injection propre de la permission INTERNET et du trafic HTTP (Cleartext)
+      - name: Injecter permissions réseau Android
         run: |
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/g' android/app/src/main/AndroidManifest.xml
+          python3 -c "
+          path = 'android/app/src/main/AndroidManifest.xml'
+          with open(path, 'r') as f:
+              content = f.read()
+          if 'uses-permission' not in content:
+              content = content.replace('<manifest ', '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <uses-permission android:name=\"android.permission.INTERNET\"/>\n')
+          if 'usesCleartextTraffic' not in content:
+              content = content.replace('<application', '<application android:usesCleartextTraffic=\"true\"')
+          with open(path, 'w') as f:
+              f.write(content)
+          "
 
-      # Installation des dépendances Dart
       - run: flutter pub get
 
-      # Compilation de l'APK Release
       - run: flutter build apk --release
 
-      # Génération de l'artefact téléchargeable
       - uses: actions/upload-artifact@v4
         with:
           name: app-release
