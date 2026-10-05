@@ -2,47 +2,37 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, master ]
-  workflow_dispatch:
+    branches: [ main, master ] # Se déclenche quand vous poussez du code sur main ou master
+  workflow_dispatch:          # Permet aussi de lancer la compilation manuellement depuis GitHub
 
 jobs:
   build:
+    name: Build Flutter APK
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - uses: subosito/flutter-action@v2
+      - name: Setup Flutter SDK
+        uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # Génération de la plateforme Android
-      - run: flutter create --platforms=android . --org com.monart.app
+      - name: Get Flutter dependencies
+        run: flutter pub get
 
-      # Injection propre de la permission INTERNET et du trafic HTTP (Cleartext)
-      - name: Injecter permissions réseau Android
-        run: |
-          python3 -c "
-          path = 'android/app/src/main/AndroidManifest.xml'
-          with open(path, 'r') as f:
-              content = f.read()
-          if 'uses-permission' not in content:
-              content = content.replace('<manifest ', '<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\">\n    <uses-permission android:name=\"android.permission.INTERNET\"/>\n')
-          if 'usesCleartextTraffic' not in content:
-              content = content.replace('<application', '<application android:usesCleartextTraffic=\"true\"')
-          with open(path, 'w') as f:
-              f.write(content)
-          "
+      - name: Build APK Release
+        run: flutter build apk --release
 
-      - run: flutter pub get
-
-      - run: flutter build apk --release
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: app-release
+          name: app-release-apk
           path: build/app/outputs/flutter-apk/app-release.apk
