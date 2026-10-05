@@ -2,8 +2,8 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, master ] # Se déclenche quand vous poussez du code sur main ou master
-  workflow_dispatch:          # Permet aussi de lancer la compilation manuellement depuis GitHub
+    branches: [ "main" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,6 +24,9 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+
+      - name: Reconstruct Android project structure
+        run: flutter create . --platforms=android
 
       - name: Get Flutter dependencies
         run: flutter pub get
