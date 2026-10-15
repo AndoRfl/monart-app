@@ -1,25 +1,25 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
-import 'services/api_service.dart';
+import 'api_service.dart';
 
 void main() {
-  runApp(const ServerMonitoringApp());
+  runApp(const MonArtApp());
 }
 
-class ServerMonitoringApp extends StatelessWidget {
-  const ServerMonitoringApp({super.key});
+class MonArtApp extends StatelessWidget {
+  const MonArtApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Debian 12 Monitor',
+      title: 'MonArt Monitoring',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF1E88E5),
-          brightness: Brightness.dark,
+      theme: ThemeData.dark().copyWith(
+        scaffoldBackgroundColor: const Color(0xFF0F172A),
+        cardColor: const Color(0xFF1E293B),
+        colorScheme: const ColorScheme.dark(
+          primary: Colors.blue,
+          surface: Color(0xFF1E293B),
         ),
-        useMaterial3: true,
       ),
       home: const DashboardScreen(),
     );
@@ -34,56 +34,132 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  Timer? _timer;
-  Map<String, dynamic>? _healthData;
-  Map<String, dynamic>? _proxyData;
   bool _isLoading = true;
-  String? _errorMessage;
+  String _errorMessage = '';
+
+  // Métriques système
+  double _cpuPercent = 0.0;
+  double _ramPercent = 0.0;
+  double _diskPercent = 0.0;
+  String _hostname = 'Debian';
+  String _os = 'Linux';
+  int _uptimeHours = 0;
+
+  // Statut des services
+  Map<String, bool> _services = {};
+
+  // Blocages
+  int _totalBlocked = 0;
+  List<dynamic> _recentBlocks = [];
+
+  // Controllers pour le blocage / déblocage
+  final TextEditingController _blockController = TextEditingController();
+  final TextEditingController _unblockController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _loadAllData();
-    _timer = Timer.periodic(const Duration(seconds: 5), (_) => _loadAllData());
+    _loadDashboardData();
   }
 
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+  double _parseDouble(dynamic val) {
+    if (val == null) return 0.0;
+    if (val is num) return val.toDouble();
+    if (val is String) return double.tryParse(val) ?? 0.0;
+    return 0.0;
   }
 
-  Future<void> _loadAllData() async {
+  Future<void> _loadDashboardData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
     try {
-      final health = await ApiService.fetchHealth();
-      final proxy = await ApiService.fetchProxyStats();
+      final data = await ApiService.fetchProxyStats();
+
+      // Extraction sécurisée des données système
+      final sys = data['system'] as Map<String, dynamic>? ?? {};
+
+      final cpu = data['cpu'] ?? data['cpu_percent'] ?? sys['cpu'] ?? sys['cpu_percent'];
+      final ram = data['ram_percent'] ?? data['memory_percent'] ?? sys['ram_percent'] ?? sys['memory_percent'];
+      final disk = data['disk_percent'] ?? sys['disk_percent'];
+
+      final servicesData = data['services'] as Map<String, dynamic>? ?? {};
+      Map<String, bool> parsedServices = {};
+      servicesData.forEach((key, value) {
+        parsedServices[key] = value == true;
+      });
+
+      final filtering = data['filtering'] as Map<String, dynamic>? ?? {};
+      final blockedCount = data['total_blocked'] ?? filtering['total_blocked'] ?? 0;
+      final blocksList = data['recent_blocks'] ?? filtering['recent_blocks'] ?? [];
+
       setState(() {
-        _healthData = health;
-        _proxyData = proxy;
+        _cpuPercent = _parseDouble(cpu);
+        _ramPercent = _parseDouble(ram);
+        _diskPercent = _parseDouble(disk);
+
+        _hostname = sys['hostname']?.toString() ?? 'Debian';
+        _os = sys['os']?.toString() ?? 'Linux';
+        _uptimeHours = ((sys['uptime_seconds'] ?? 0) as num).toInt() ~/ 3600;
+
+        _services = parsedServices;
+        _totalBlocked = (blockedCount as num).toInt();
+        _recentBlocks = List.from(blocksList);
+
         _isLoading = false;
-        _errorMessage = null;
       });
     } catch (e) {
       setState(() {
-        _errorMessage = e.toString();
+        _errorMessage = 'Erreur de connexion au serveur API';
         _isLoading = false;
       });
     }
   }
 
-  Future<void> _triggerProxyReload() async {
+  Future<void> _handleBlockDomain() async {
+    final domain = _blockController.text.trim();
+    if (domain.isEmpty) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Rechargement de Squid/SquidGuard...')),
+      SnackBar(content: Text('Blocage de $domain en cours...')),
     );
-    bool success = await ApiService.reloadProxy();
-    if (mounted) {
+
+    final success = await ApiService.blockDomain(domain);
+    _blockController.clear();
+
+    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            success ? 'Proxy rechargé avec succès !' : 'Erreur lors du rechargement',
-          ),
-          backgroundColor: success ? Colors.green : Colors.red,
-        ),
+        SnackBar(content: Text('Domaine $domain bloqué !'), backgroundColor: Colors.green),
+      );
+      _loadDashboardData();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Échec du blocage'), backgroundColor: Colors.red),
+      );
+    }
+  }
+
+  Future<void> _handleUnblockDomain() async {
+    final domain = _unblockController.text.trim();
+    if (domain.isEmpty) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Déblocage de $domain en cours...')),
+    );
+
+    final success = await ApiService.unblockDomain(domain);
+    _unblockController.clear();
+
+    if (success) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Exception appliquée pour $domain !'), backgroundColor: Colors.green),
+      );
+      _loadDashboardData();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Échec du déblocage'), backgroundColor: Colors.red),
       );
     }
   }
@@ -92,207 +168,182 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Debian 12 — Control Panel'),
+        title: const Text('MonArt Control Panel'),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadAllData,
-          ),
-          IconButton(
-            icon: const Icon(Icons.published_with_changes),
-            tooltip: 'Recharger Squid',
-            onPressed: _triggerProxyReload,
-          ),
+            onPressed: _loadDashboardData,
+          )
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _errorMessage != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+          : RefreshIndicator(
+              onRefresh: _loadDashboardData,
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAlignment.start,
+                  children: [
+                    if (_errorMessage.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(_errorMessage, style: const TextStyle(color: Colors.redAccent)),
+                      ),
+
+                    Text(
+                      '$_hostname | $_os | Uptime: ${_uptimeHours}h',
+                      style: const TextStyle(color: Colors.grey, fontSize: 13),
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Jauges Système CPU, RAM, DISK
+                    Row(
                       children: [
-                        const Icon(Icons.error_outline, size: 60, color: Colors.red),
-                        const SizedBox(height: 10),
-                        Text('Erreur de connexion Tailscale :\n$_errorMessage',
-                            textAlign: TextAlign.center),
-                        const SizedBox(height: 15),
-                        ElevatedButton(
-                          onPressed: _loadAllData,
-                          child: const Text('Réessayer'),
-                        )
+                        Expanded(child: _buildStatCard('CPU', _cpuPercent, Colors.blue)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _buildStatCard('RAM', _ramPercent, Colors.orange)),
+                        const SizedBox(width: 8),
+                        Expanded(child: _buildStatCard('DISQUE', _diskPercent, Colors.green)),
                       ],
                     ),
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadAllData,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16.0),
-                    children: [
-                      _buildSystemMetricsCard(),
-                      const SizedBox(height: 16),
-                      _buildServicesStatusCard(),
-                      const SizedBox(height: 16),
-                      _buildProxyClientsCard(),
-                    ],
-                  ),
-                ),
-    );
-  }
+                    const SizedBox(height: 20),
 
-  Widget _buildSystemMetricsCard() {
-    final sys = _healthData?['system'] ?? {};
-    final net = sys['network_bandwidth'] ?? {};
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Ressources Système',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const Divider(),
-            _buildMetricBar('CPU', (sys['cpu_percent'] ?? 0.0) / 100,
-                '${sys['cpu_percent']}%', Colors.blue),
-            _buildMetricBar('RAM', (sys['ram_percent'] ?? 0.0) / 100,
-                '${sys['ram_percent']}%', Colors.purple),
-            _buildMetricBar('Disque', (sys['disk_percent'] ?? 0.0) / 100,
-                '${sys['disk_percent']}%', Colors.orange),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.arrow_downward, color: Colors.green),
-                    Text(' Down: ${net['download_kbps'] ?? 0} Ko/s'),
-                  ],
-                ),
-                Row(
-                  children: [
-                    const Icon(Icons.arrow_upward, color: Colors.blue),
-                    Text(' Up: ${net['upload_kbps'] ?? 0} Ko/s'),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMetricBar(
-      String label, double progress, String text, Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [Text(label), Text(text)],
-          ),
-          const SizedBox(height: 4),
-          LinearProgressIndicator(
-            value: progress.clamp(0.0, 1.0),
-            color: color,
-            backgroundColor: color.withOpacity(0.2),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildServicesStatusCard() {
-    final services = _healthData?['services'] ?? {};
-    final docker = _healthData?['docker'] ?? {};
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Statut des Services',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const Divider(),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildServiceChip('Postfix', services['postfix']),
-                _buildServiceChip('Dovecot', services['dovecot']),
-                _buildServiceChip('Samba', services['samba']),
-                _buildServiceChip('Nginx', services['nginx']),
-                _buildServiceChip('Squid', services['squid']),
-                _buildServiceChip('Nextcloud App', docker['nextcloud_app']),
-                _buildServiceChip('Nextcloud DB', docker['nextcloud_db']),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildServiceChip(String name, String? status) {
-    bool isActive = status == 'active' || status == 'running';
-    return Chip(
-      avatar: CircleAvatar(
-        backgroundColor: isActive ? Colors.green : Colors.red,
-        radius: 6,
-      ),
-      label: Text('$name: ${status ?? "inconnu"}'),
-    );
-  }
-
-  Widget _buildProxyClientsCard() {
-    final List clients = _proxyData?['clients_usage'] ?? [];
-    final filtering = _proxyData?['filtering'] ?? {};
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('PC Clients & Filtrage',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                Chip(
-                  label: Text('Bloqués: ${filtering['total_blocked'] ?? 0}'),
-                  backgroundColor: Colors.red.withOpacity(0.2),
-                ),
-              ],
-            ),
-            const Divider(),
-            if (clients.isEmpty)
-              const Text('Aucun trafic proxy enregistré récemment.')
-            else
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: clients.length,
-                itemBuilder: (context, index) {
-                  final client = clients[index];
-                  return ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.computer),
-                    title: Text(client['client_ip']),
-                    trailing: Text(
-                      '${client['megabytes']} Mo',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    // Actions de blocage
+                    Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          children: [
+                            TextField(
+                              controller: _blockController,
+                              decoration: InputDecoration(
+                                labelText: 'Bloquer un domaine',
+                                hintText: 'ex: tiktok.com',
+                                suffixIcon: IconButton(
+                                  icon: const Icon(Icons.block, color: Colors.red),
+                                  onPressed: _handleBlockDomain,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: _unblockController,
+                              decoration: InputDecoration(
+                                labelText: 'Débloquer un domaine',
+                                hintText: 'ex: facebook.com',
+                                suffixIcon: IconButton(
+                                  icon: const Icon(Icons.check_circle, color: Colors.green),
+                                  onPressed: _handleUnblockDomain,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
-                  );
-                },
+                    const SizedBox(height: 20),
+
+                    // Liste des services
+                    const Text('Statut des Services', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 8),
+                    Card(
+                      child: _services.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: Text('Aucun service détecté', style: TextStyle(color: Colors.grey)),
+                            )
+                          : Column(
+                              children: _services.entries.map((e) {
+                                return ListTile(
+                                  title: Text(e.key.toUpperCase()),
+                                  trailing: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: e.value ? Colors.green : Colors.red,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Text(
+                                      e.value ? 'Actif' : 'Inactif',
+                                      style: const TextStyle(color: Colors.white, fontSize: 12),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Blocages récents
+                    Row(
+                      mainAxisAlignment: MainAlignment.spaceBetween,
+                      children: [
+                        const Text('Derniers Blocages', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                        Chip(
+                          label: Text('Total: $_totalBlocked'),
+                          backgroundColor: Colors.red.withOpacity(0.3),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Card(
+                      child: _recentBlocks.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.all(16.0),
+                              child: Text('Aucun blocage récent', style: TextStyle(color: Colors.grey)),
+                            )
+                          : ListView.separated(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: _recentBlocks.length > 10 ? 10 : _recentBlocks.length,
+                              separatorBuilder: (_, __) => const Divider(height: 1),
+                              itemBuilder: (context, index) {
+                                final block = _recentBlocks[_recentBlocks.length - 1 - index];
+                                return ListTile(
+                                  title: Text(
+                                    block['target']?.toString() ?? 'Domaine inconnu',
+                                    style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold),
+                                  ),
+                                  subtitle: Text('Client: ${block['client'] ?? 'Inconnu'}'),
+                                  trailing: Text(
+                                    block['timestamp']?.toString() ?? '',
+                                    style: const TextStyle(color: Colors.grey, fontSize: 11),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
               ),
+            ),
+    );
+  }
+
+  Widget _buildStatCard(String title, double percent, Color color) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          children: [
+            Text(title, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 8),
+            Text(
+              '${percent.toStringAsFixed(1)}%',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: color),
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: (percent / 100).clamp(0.0, 1.0),
+              color: color,
+              backgroundColor: Colors.grey.shade800,
+            ),
           ],
         ),
       ),
