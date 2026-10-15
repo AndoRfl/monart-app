@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'dart0:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
@@ -9,7 +9,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return jsonDecode(response.body);
     } else {
-      throw Exception('Erreur de chargement des données système');
+      throw Exception('Erreur de chargement de l\'état de santé');
     }
   }
 
@@ -19,6 +19,15 @@ class ApiService {
       return jsonDecode(response.body);
     } else {
       throw Exception('Erreur de chargement des données proxy');
+    }
+  }
+
+  static Future<Map<String, dynamic>> fetchSystemStats() async {
+    final response = await http.get(Uri.parse('$baseUrl/api/system/stats'));
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body);
+    } else {
+      throw Exception('Erreur de chargement des données système');
     }
   }
 
